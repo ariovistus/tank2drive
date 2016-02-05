@@ -3,55 +3,13 @@
 import wpilib
 import xbox
 import math
-
-
-def normalize_joystick_axes(x, y):
-    """
-    A joystick axis returns a value in the range [-1.0 .. 1.0]
-    Then two joystick axes (x direction, y direction) give us a
-    "unit square". We want a unit circle - i.e. the angle is preserved,
-    but the magnitude is the same for any angle.
-    Return (x, y) the scaled x, y components
-    """
-    magnitude = math.hypot(x, y)
-    side = max(abs(x), abs(y))
-    if magnitude == 0.0:
-        return 0.0, 0.0
-    return x * side / magnitude, y * side / magnitude
-
-
-def joystick_as_polar(x, y):
-    x, y = normalize_joystick_axes(x, y)
-    h = math.hypot(x, y)
-    if h == 0:
-        return 0, 0
-    th = math.asin(y/h) + math.pi/2
-    return h, math.copysign(th, x)
-
-
-def throttle_angle_to_thrust_right(r, theta):
-    if (-math.pi/4) <= theta <= (3*math.pi/4):
-        v_a = r * (math.pi/4 - theta) / (math.pi/2)
-    elif theta < -math.pi/4:
-        v_a = r * (theta + 3*math.pi/4) / (math.pi/2)
-    elif theta > 3*math.pi/4:
-        v_a = r * (theta - 5*math.pi/4) / (math.pi/2)
-    return v_a
-
-
-def throttle_angle_to_thrust_left(r, theta):
-    v_a = 0
-    if (math.pi/4) >= theta >= -(3*math.pi/4):
-        v_a = r * (math.pi/4 + theta) / (math.pi/2)
-    elif theta > math.pi/4:
-        v_a = r * (-theta + 3*math.pi/4) / (math.pi/2)
-    elif theta < -3*math.pi/4:
-        v_a = r * (-theta - 5*math.pi/4) / (math.pi/2)
-    return v_a
-
-
-def signmod(a, b):
-    return math.copysign(a % b, a)
+from datetime import datetime
+from polartank import (
+    normrad,
+    joystick_as_polar,
+    throttle_angle_to_thrust_right,
+    throttle_angle_to_thrust_left,
+)
 
 
 class MyRobot(wpilib.IterativeRobot):
@@ -64,14 +22,49 @@ class MyRobot(wpilib.IterativeRobot):
         self.xbox = xbox.XboxController(self.lstick)
         self.lmotor = wpilib.Jaguar(0)
         self.rmotor = wpilib.Jaguar(1)
+        self.gyro = wpilib.AnalogGyro(1)
 
     def autonomousInit(self):
         '''Called only at the beginning of autonomous mode'''
-        pass
+        self.starttime = datetime.now()
+        self.phase = 1
+        self.heading = self.gyro.getAngle()
+        self.last = datetime.now()
 
     def autonomousPeriodic(self):
         '''Called every 20ms in autonomous mode'''
-        pass
+        current = datetime.now()
+        print (current-self.last)
+        self.last = current
+        if self.phase == 1:
+            now = datetime.now()
+            if (now - self.starttime).seconds > 2:
+                self.phase = 2
+                self.starttime = now
+                print ('phase 2')
+                self.heading = self.heading + 80
+
+            theta = math.radians(self.heading - self.gyro.getAngle())
+            r = 0.8
+        elif self.phase == 2:
+            now = datetime.now()
+            if (self.heading - self.gyro.getAngle()) < 5:
+                self.phase = 3
+                self.starttime = now
+                print ('phase 3')
+
+            # theta = math.radians(self.heading - self.gyro.getAngle())
+            theta = math.copysign(math.pi/2,
+                                  self.heading - self.gyro.getAngle())
+            r = 0.5
+        else:
+            theta = 0
+            r = 0
+
+        th_l = throttle_angle_to_thrust_left(r, theta)
+        th_r = throttle_angle_to_thrust_right(r, theta)
+        self.lmotor.set(th_l)
+        self.rmotor.set(th_r)
 
     def disabledInit(self):
         '''Called only at the beginning of disabled mode'''
@@ -84,14 +77,36 @@ class MyRobot(wpilib.IterativeRobot):
     def teleopInit(self):
         '''Called only at the beginning of teleoperated mode'''
         pass
+        self.initial_heading = self.gyro.getAngle()
+        print ('initial heading: ', math.degrees(self.initial_heading))
 
     def teleopPeriodic(self):
         '''Called every 20ms in teleoperated mode'''
+        self.drive2()
+
+    def drive1(self):
         x = self.xbox.analog_drive_x()
         y = self.xbox.analog_drive_y()
-        r, th = joystick_as_polar(y, x)
+        r, th = joystick_as_polar(x, y)
         th_l = throttle_angle_to_thrust_left(r, th)
         th_r = throttle_angle_to_thrust_right(r, th)
+        self.lmotor.set(th_l)
+        self.rmotor.set(th_r)
+
+    def drive2(self):
+        x = self.xbox.analog_drive_x()
+        y = self.xbox.analog_drive_y()
+        print (x, y)
+        r, th = joystick_as_polar(x, y)
+        desired_abs_heading = th - math.pi/2
+        desired_relative_heading = (desired_abs_heading -
+                                    (math.radians(self.gyro.getAngle())))
+        desired_relative_heading = normrad(desired_relative_heading)
+        if desired_relative_heading > math.radians(10):
+            desired_relative_heading = math.copysign(
+                math.pi/2, desired_relative_heading)
+        th_l = throttle_angle_to_thrust_left(r, desired_relative_heading)
+        th_r = throttle_angle_to_thrust_right(r, desired_relative_heading)
         self.lmotor.set(th_l)
         self.rmotor.set(th_r)
 
