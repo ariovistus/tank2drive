@@ -10,6 +10,7 @@ from polartank import (
     throttle_angle_to_thrust_right,
     throttle_angle_to_thrust_left,
 )
+from networktables import NetworkTable
 
 
 class MyRobot(wpilib.IterativeRobot):
@@ -20,9 +21,11 @@ class MyRobot(wpilib.IterativeRobot):
 
         self.lstick = wpilib.Joystick(0)
         self.xbox = xbox.XboxController(self.lstick)
+        self.rstick =  wpilib.Joystick(1)
         self.lmotor = wpilib.Jaguar(0)
         self.rmotor = wpilib.Jaguar(1)
         self.gyro = wpilib.AnalogGyro(1)
+        self.sd = NetworkTable.getTable('SmartDashboard')
 
     def autonomousInit(self):
         '''Called only at the beginning of autonomous mode'''
@@ -82,6 +85,7 @@ class MyRobot(wpilib.IterativeRobot):
 
     def teleopPeriodic(self):
         '''Called every 20ms in teleoperated mode'''
+        self.sd.putNumber('theta', self.gyro.getAngle())
         self.drive2()
 
     def drive1(self):
@@ -96,15 +100,19 @@ class MyRobot(wpilib.IterativeRobot):
     def drive2(self):
         x = self.xbox.analog_drive_x()
         y = self.xbox.analog_drive_y()
+        r = -self.rstick.getRawAxis(1)
         print (x, y)
         r, th = joystick_as_polar(x, y)
         desired_abs_heading = th - math.pi/2
         desired_relative_heading = (desired_abs_heading -
                                     (math.radians(self.gyro.getAngle())))
+        # if r2 < 0.2:
+        #   desired_relative_heading = 0
         desired_relative_heading = normrad(desired_relative_heading)
-        if desired_relative_heading > math.radians(10):
+        if abs(desired_relative_heading) > math.radians(10):
             desired_relative_heading = math.copysign(
                 math.pi/2, desired_relative_heading)
+            #r = 0.8
         th_l = throttle_angle_to_thrust_left(r, desired_relative_heading)
         th_r = throttle_angle_to_thrust_right(r, desired_relative_heading)
         self.lmotor.set(th_l)
